@@ -1,6 +1,6 @@
 require("dotenv").config();
 console.log("SERVER START");
-const fetch = require("node-fetch"); // node-fetch versi 2
+const fetch = require("node-fetch");
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
@@ -15,7 +15,7 @@ app.use(bodyParser.json());
 // Cek API Key OpenRouter
 if (!process.env.OPENROUTER_API_KEY) {
   console.warn(
-    "⚠️  OPENROUTER_API_KEY belum diatur di file .env. Generate quiz tidak akan berfungsi."
+    "⚠️  OPENROUTER_API_KEY belum diatur. Generate quiz tidak akan berfungsi."
   );
 } else {
   console.log("✅ OpenRouter API Key ditemukan.");
@@ -23,9 +23,10 @@ if (!process.env.OPENROUTER_API_KEY) {
 
 let db;
 
-// Fungsi untuk menjalankan migrasi (membuat tabel & contoh data)
+// ==================== FUNGSI MIGRASI ====================
 async function runMigrations(database) {
   console.log("Menjalankan migrasi database...");
+
   // Tabel users
   await database.execute(`
     CREATE TABLE IF NOT EXISTS users (
@@ -40,6 +41,7 @@ async function runMigrations(database) {
       kinesthetic_score FLOAT DEFAULT 0
     )
   `);
+
   // Tabel classification_rules
   await database.execute(`
     CREATE TABLE IF NOT EXISTS classification_rules (
@@ -50,13 +52,18 @@ async function runMigrations(database) {
       kinesthetic_weight FLOAT DEFAULT 1
     )
   `);
+
   // Data awal classification_rules
-  const [existingRules] = await database.execute("SELECT COUNT(*) AS cnt FROM classification_rules");
+  const [existingRules] = await database.execute(
+    "SELECT COUNT(*) AS cnt FROM classification_rules"
+  );
   if (existingRules[0].cnt === 0) {
     await database.execute(
-      "INSERT INTO classification_rules (visual_weight, auditory_weight, reading_weight, kinesthetic_weight) VALUES (1, 1, 1, 1)"
+      `INSERT INTO classification_rules (visual_weight, auditory_weight, reading_weight, kinesthetic_weight)
+       VALUES (1, 1, 1, 1)`
     );
   }
+
   // Tabel activities
   await database.execute(`
     CREATE TABLE IF NOT EXISTS activities (
@@ -67,7 +74,7 @@ async function runMigrations(database) {
       style_target ENUM('visual','auditory','reading','kinesthetic')
     )
   `);
-  // Data contoh activities akan diisi nanti oleh endpoint /analyze jika kosong
+
   // Tabel ai_generated_quizzes
   await database.execute(`
     CREATE TABLE IF NOT EXISTS ai_generated_quizzes (
@@ -79,10 +86,11 @@ async function runMigrations(database) {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
   console.log("✅ Migrasi database selesai.");
 }
 
-// Inisialisasi koneksi + migrasi
+// ==================== INISIALISASI KONEKSI DB ====================
 (async () => {
   try {
     db = await mysql.createConnection({
@@ -91,45 +99,49 @@ async function runMigrations(database) {
       user: process.env.DB_USER || "root",
       password: process.env.DB_PASSWORD || "",
       database: process.env.DB_NAME || "elearning_ai_final",
-      ssl: {
-        rejectUnauthorized: false,
-      },
+      ssl: { rejectUnauthorized: false },
     });
     console.log("✅ MySQL terhubung ke Aiven");
     await runMigrations(db);
   } catch (err) {
     console.error("❌ Koneksi/migrasi DB gagal:", err.message);
-    // db tetap undefined, tapi server tetap berjalan
   }
 })();
 
-// Helper untuk memastikan db tersedia (untuk endpoint yang wajib)
+// ==================== HELPER DATABASE WAJIB ====================
 function requireDb(res) {
   if (!db) {
-    res.status(503).json({ success: false, message: "Database belum siap, coba beberapa saat lagi." });
+    res.status(503).json({
+      success: false,
+      message: "Database belum siap, coba beberapa saat lagi.",
+    });
     return false;
   }
   return true;
 }
 
-// ========== ENDPOINT ANALISIS GAYA BELAJAR ==========
+// ==================== ENDPOINT ANALISIS GAYA BELAJAR ====================
 app.post("/analyze", async (req, res) => {
   const { answers, userId } = req.body;
   if (!answers || answers.length !== 8) {
-    return res.status(400).json({ success: false, message: "Jawaban tidak lengkap" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Jawaban tidak lengkap" });
   }
 
   // Hitung skor mentah
-  let scores = { visual: 0, auditory: 0, reading: 0, kinesthetic: 0 };
+  const scores = { visual: 0, auditory: 0, reading: 0, kinesthetic: 0 };
   for (let a of answers) scores[a]++;
 
   // Aturan bobot default
-  let rules = [{ visual_weight: 1, auditory_weight: 1, reading_weight: 1, kinesthetic_weight: 1 }];
-  
-  // Ambil dari database hanya jika db tersedia
+  let rules = [
+    { visual_weight: 1, auditory_weight: 1, reading_weight: 1, kinesthetic_weight: 1 },
+  ];
   if (db) {
     try {
-      const [rows] = await db.execute("SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1");
+      const [rows] = await db.execute(
+        "SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1"
+      );
       if (rows.length) rules = rows;
     } catch (e) {
       console.warn("Gagal ambil classification_rules, pakai default.");
@@ -137,42 +149,87 @@ app.post("/analyze", async (req, res) => {
   }
 
   const w = rules[0];
-  let weighted = {
+  const weighted = {
     visual: scores.visual * w.visual_weight,
     auditory: scores.auditory * w.auditory_weight,
     reading: scores.reading * w.reading_weight,
     kinesthetic: scores.kinesthetic * w.kinesthetic_weight,
   };
 
-  let maxStyle = Object.keys(weighted).reduce((a, b) =>
+  const maxStyle = Object.keys(weighted).reduce((a, b) =>
     weighted[a] > weighted[b] ? a : b
   );
 
-  // Ambil aktivitas + auto-fill data contoh jika kosong
+  // Dapatkan aktivitas
   let activities = [];
   if (db) {
     try {
-      // Cek apakah tabel activities kosong
-      const [countResult] = await db.execute("SELECT COUNT(*) AS cnt FROM activities");
+      // Cek & isi data contoh jika kosong
+      const [countResult] = await db.execute(
+        "SELECT COUNT(*) AS cnt FROM activities"
+      );
       if (countResult[0].cnt === 0) {
-        // Masukkan data contoh
-        await db.execute(`
-          INSERT INTO activities (title, type, content_url, style_target) VALUES
-          ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
-          ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
-          ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
-          ('Praktik Membuat Rangkaian Listrik', 'praktik', 'https://example.com/praktik-listrik', 'kinesthetic')
-        `);
-        console.log("✅ Data aktivitas contoh ditambahkan karena tabel kosong.");
+        try {
+          await db.execute(`
+            INSERT INTO activities (title, type, content_url, style_target) VALUES
+            ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
+            ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
+            ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
+            ('Praktik Membuat Rangkaian Listrik', 'praktik', 'https://example.com/praktik-listrik', 'kinesthetic')
+          `);
+          console.log("✅ Data aktivitas contoh ditambahkan.");
+        } catch (insertErr) {
+          console.warn("⚠️ Gagal menambahkan data contoh:", insertErr.message);
+        }
       }
 
-      // Sekarang ambil aktivitas sesuai gaya belajar
-      const [rows] = await db.execute("SELECT * FROM activities WHERE style_target = ?", [maxStyle]);
+      // Ambil aktivitas sesuai gaya belajar
+      const [rows] = await db.execute(
+        "SELECT * FROM activities WHERE style_target = ?",
+        [maxStyle]
+      );
       activities = rows;
-      console.log(`Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`);
+      console.log(
+        `Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`
+      );
     } catch (err) {
-      console.error("Gagal ambil aktivitas:", err);
+      console.error("Gagal ambil aktivitas dari DB:", err);
     }
+  }
+
+  // Fallback jika activities kosong (DB gagal atau belum ada data)
+  if (activities.length === 0) {
+    console.warn("⚠️ Tidak ada aktivitas, menggunakan fallback.");
+    activities = [
+      {
+        id: 0,
+        title: "Membaca Artikel AI",
+        type: "teks",
+        content_url: "https://example.com/artikel-ai.txt",
+        style_target: "reading",
+      },
+      {
+        id: 0,
+        title: "Menonton Video Visualisasi Data",
+        type: "video",
+        content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ",
+        style_target: "visual",
+      },
+      {
+        id: 0,
+        title: "Podcast Diskusi Sains",
+        type: "video",
+        content_url: "https://example.com/podcast.mp3",
+        style_target: "auditory",
+      },
+      {
+        id: 0,
+        title: "Praktik Membuat Rangkaian Listrik",
+        type: "praktik",
+        content_url: "https://example.com/praktik-listrik",
+        style_target: "kinesthetic",
+      },
+    ].filter((a) => a.style_target === maxStyle);
   }
 
   res.json({
@@ -183,13 +240,15 @@ app.post("/analyze", async (req, res) => {
   });
 });
 
-// ========== UPDATE PERFORMANCE ==========
+// ==================== UPDATE PERFORMANCE ====================
 app.post("/update_performance", async (req, res) => {
   if (!requireDb(res)) return;
 
   const { userId, activity_id, score_performance, old_style } = req.body;
   if (!userId || !activity_id) {
-    return res.status(400).json({ success: false, message: "userId dan activity_id diperlukan" });
+    return res
+      .status(400)
+      .json({ success: false, message: "userId dan activity_id diperlukan" });
   }
 
   try {
@@ -236,20 +295,23 @@ app.post("/update_performance", async (req, res) => {
   }
 });
 
-// ========== GENERATE QUIZ DENGAN OPENROUTER ==========
+// ==================== GENERATE QUIZ ====================
 app.post("/generate-quiz", async (req, res) => {
   if (!requireDb(res)) return;
 
   const { topic, numQuestions, learningStyle, userId } = req.body;
   if (!topic || !numQuestions) {
-    return res.status(400).json({ success: false, message: "Topik dan jumlah soal diperlukan" });
+    return res
+      .status(400)
+      .json({ success: false, message: "Topik dan jumlah soal diperlukan" });
   }
 
   const model = "tencent/hy3-preview:free";
 
   let styleInstruction = "";
   if (learningStyle === "visual")
-    styleInstruction = "Gunakan deskripsi visual, diagram, atau skenario yang mudah dibayangkan.";
+    styleInstruction =
+      "Gunakan deskripsi visual, diagram, atau skenario yang mudah dibayangkan.";
   else if (learningStyle === "auditory")
     styleInstruction = "Gunakan skenario percakapan atau narasi.";
   else if (learningStyle === "reading")
@@ -289,7 +351,9 @@ app.post("/generate-quiz", async (req, res) => {
     const data = await response.json();
     if (data.error) {
       console.error("OpenRouter error:", data.error);
-      return res.status(500).json({ success: false, message: data.error.message });
+      return res
+        .status(500)
+        .json({ success: false, message: data.error.message });
     }
 
     let content = data.choices[0].message.content;
