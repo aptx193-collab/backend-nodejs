@@ -226,7 +226,7 @@ app.post("/analyze", async (req, res) => {
         id: 0,
         title: "Praktik coding",
         type: "praktik",
-        content_url: "https://example.com/praktik-listrik",
+        content_url: "https://example.com/praktik-coding",
         style_target: "kinesthetic",
       },
     ].filter((a) => a.style_target === maxStyle);
