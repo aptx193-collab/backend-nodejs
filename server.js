@@ -21,20 +21,20 @@ if (!process.env.OPENROUTER_API_KEY) {
   console.log("✅ OpenRouter API Key ditemukan.");
 }
 
-// let db;
-// (async () => {
-//   try {
-//     db = await mysql.createConnection({
-//       host: process.env.DB_HOST || "localhost",
-//       user: process.env.DB_USER || "root",
-//       password: process.env.DB_PASSWORD || "",
-//       database: process.env.DB_NAME || "elearning_ai_final",
-//     });
-//     console.log("MySQL terhubung");
-//   } catch (err) {
-//     console.error("Koneksi DB gagal:", err);
-//   }
-// })();
+let db;
+(async () => {
+  try {
+    db = await mysql.createConnection({
+      host: process.env.DB_HOST || "localhost",
+      user: process.env.DB_USER || "root",
+      password: process.env.DB_PASSWORD || "",
+      database: process.env.DB_NAME || "elearning_ai_final",
+    });
+    console.log("MySQL terhubung");
+  } catch (err) {
+    console.error("Koneksi DB gagal:", err);
+  }
+})();
 
 // ========== ENDPOINT ANALISIS GAYA BELAJAR (TETAP) ==========
 app.post("/analyze", async (req, res) => {
