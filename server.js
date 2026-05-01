@@ -197,7 +197,7 @@ app.post("/analyze", async (req, res) => {
     }
   }
 
-  // Fallback jika activities kosong (DB gagal atau belum ada data)
+  // Fallback jika activities kosong
   if (activities.length === 0) {
     console.warn("⚠️ Tidak ada aktivitas, menggunakan fallback.");
     activities = [
@@ -295,15 +295,21 @@ app.post("/update_performance", async (req, res) => {
   }
 });
 
-// ==================== GENERATE QUIZ ====================
+// ==================== GENERATE QUIZ (FIX: Tidak wajib DB) ====================
 app.post("/generate-quiz", async (req, res) => {
-  if (!requireDb(res)) return;
-
   const { topic, numQuestions, learningStyle, userId } = req.body;
   if (!topic || !numQuestions) {
     return res
       .status(400)
       .json({ success: false, message: "Topik dan jumlah soal diperlukan" });
+  }
+
+  // Cek API Key OpenRouter
+  if (!process.env.OPENROUTER_API_KEY) {
+    return res.status(500).json({
+      success: false,
+      message: "API Key OpenRouter belum dikonfigurasi.",
+    });
   }
 
   const model = "tencent/hy3-preview:free";
@@ -363,11 +369,17 @@ app.post("/generate-quiz", async (req, res) => {
       throw new Error("Format JSON tidak sesuai");
     }
 
+    // Simpan ke database hanya jika db tersedia dan userId ada
     if (db && userId) {
-      await db.execute(
-        "INSERT INTO ai_generated_quizzes (user_id, topic, num_questions, questions) VALUES (?, ?, ?, ?)",
-        [userId, topic, numQuestions, JSON.stringify(quizData)]
-      );
+      try {
+        await db.execute(
+          "INSERT INTO ai_generated_quizzes (user_id, topic, num_questions, questions) VALUES (?, ?, ?, ?)",
+          [userId, topic, numQuestions, JSON.stringify(quizData)]
+        );
+        console.log("✅ Quiz tersimpan ke database.");
+      } catch (dbError) {
+        console.warn("⚠️ Gagal menyimpan quiz ke database:", dbError.message);
+      }
     }
 
     res.json({ success: true, questions: quizData });
