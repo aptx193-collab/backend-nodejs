@@ -14,9 +14,7 @@ app.use(bodyParser.json());
 
 // Cek API Key OpenRouter
 if (!process.env.OPENROUTER_API_KEY) {
-  console.warn(
-    "⚠️  OPENROUTER_API_KEY belum diatur. Generate quiz tidak akan berfungsi."
-  );
+  console.warn("⚠️  OPENROUTER_API_KEY belum diatur. Generate quiz tidak akan berfungsi.");
 } else {
   console.log("✅ OpenRouter API Key ditemukan.");
 }
@@ -53,7 +51,6 @@ async function runMigrations(database) {
     )
   `);
 
-  // Data awal classification_rules
   const [existingRules] = await database.execute(
     "SELECT COUNT(*) AS cnt FROM classification_rules"
   );
@@ -108,40 +105,20 @@ async function runMigrations(database) {
   }
 })();
 
-// ==================== HELPER DATABASE WAJIB ====================
-function requireDb(res) {
-  if (!db) {
-    res.status(503).json({
-      success: false,
-      message: "Database belum siap, coba beberapa saat lagi.",
-    });
-    return false;
-  }
-  return true;
-}
-
 // ==================== ENDPOINT ANALISIS GAYA BELAJAR ====================
 app.post("/analyze", async (req, res) => {
   const { answers, userId } = req.body;
   if (!answers || answers.length !== 8) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Jawaban tidak lengkap" });
+    return res.status(400).json({ success: false, message: "Jawaban tidak lengkap" });
   }
 
-  // Hitung skor mentah
   const scores = { visual: 0, auditory: 0, reading: 0, kinesthetic: 0 };
   for (let a of answers) scores[a]++;
 
-  // Aturan bobot default
-  let rules = [
-    { visual_weight: 1, auditory_weight: 1, reading_weight: 1, kinesthetic_weight: 1 },
-  ];
+  let rules = [{ visual_weight: 1, auditory_weight: 1, reading_weight: 1, kinesthetic_weight: 1 }];
   if (db) {
     try {
-      const [rows] = await db.execute(
-        "SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1"
-      );
+      const [rows] = await db.execute("SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1");
       if (rows.length) rules = rows;
     } catch (e) {
       console.warn("Gagal ambil classification_rules, pakai default.");
@@ -160,14 +137,10 @@ app.post("/analyze", async (req, res) => {
     weighted[a] > weighted[b] ? a : b
   );
 
-  // Dapatkan aktivitas
   let activities = [];
   if (db) {
     try {
-      // Cek & isi data contoh jika kosong
-      const [countResult] = await db.execute(
-        "SELECT COUNT(*) AS cnt FROM activities"
-      );
+      const [countResult] = await db.execute("SELECT COUNT(*) AS cnt FROM activities");
       if (countResult[0].cnt === 0) {
         try {
           await db.execute(`
@@ -183,52 +156,21 @@ app.post("/analyze", async (req, res) => {
         }
       }
 
-      // Ambil aktivitas sesuai gaya belajar
-      const [rows] = await db.execute(
-        "SELECT * FROM activities WHERE style_target = ?",
-        [maxStyle]
-      );
+      const [rows] = await db.execute("SELECT * FROM activities WHERE style_target = ?", [maxStyle]);
       activities = rows;
-      console.log(
-        `Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`
-      );
+      console.log(`Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`);
     } catch (err) {
       console.error("Gagal ambil aktivitas dari DB:", err);
     }
   }
 
-  // Fallback jika activities kosong
   if (activities.length === 0) {
     console.warn("⚠️ Tidak ada aktivitas, menggunakan fallback.");
     activities = [
-      {
-        id: 0,
-        title: "Membaca Artikel AI",
-        type: "teks",
-        content_url: "https://example.com/artikel-ai.txt",
-        style_target: "reading",
-      },
-      {
-        id: 0,
-        title: "Menonton Video Visualisasi Data",
-        type: "video",
-        content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-        style_target: "visual",
-      },
-      {
-        id: 0,
-        title: "Podcast Diskusi Sains",
-        type: "video",
-        content_url: "https://example.com/podcast.mp3",
-        style_target: "auditory",
-      },
-      {
-        id: 0,
-        title: "Praktik coding",
-        type: "praktik",
-        content_url: "https://example.com/praktik-coding",
-        style_target: "kinesthetic",
-      },
+      { id: 0, title: "Membaca Artikel AI", type: "teks", content_url: "https://example.com/artikel-ai.txt", style_target: "reading" },
+      { id: 0, title: "Menonton Video Visualisasi Data", type: "video", content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ", style_target: "visual" },
+      { id: 0, title: "Podcast Diskusi Sains", type: "video", content_url: "https://example.com/podcast.mp3", style_target: "auditory" },
+      { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://example.com/praktik-coding", style_target: "kinesthetic" },
     ].filter((a) => a.style_target === maxStyle);
   }
 
@@ -240,24 +182,26 @@ app.post("/analyze", async (req, res) => {
   });
 });
 
-// ==================== UPDATE PERFORMANCE ====================
+// ==================== UPDATE PERFORMANCE (FIX: Tidak wajib DB) ====================
 app.post("/update_performance", async (req, res) => {
-  if (!requireDb(res)) return;
-
   const { userId, activity_id, score_performance, old_style } = req.body;
   if (!userId || !activity_id) {
-    return res
-      .status(400)
-      .json({ success: false, message: "userId dan activity_id diperlukan" });
+    return res.status(400).json({ success: false, message: "userId dan activity_id diperlukan" });
+  }
+
+  // Jika database belum tersedia, balas dengan success sementara
+  if (!db) {
+    return res.json({
+      success: true,
+      new_learning_style: old_style || "reading",
+      message: "Profil belum diperbarui karena database belum siap. Silakan coba lagi nanti.",
+    });
   }
 
   try {
     let styleTarget = old_style || "reading";
     if (activity_id !== 999) {
-      const [act] = await db.execute(
-        "SELECT style_target FROM activities WHERE id = ?",
-        [activity_id]
-      );
+      const [act] = await db.execute("SELECT style_target FROM activities WHERE id = ?", [activity_id]);
       if (act.length) styleTarget = act[0].style_target;
     }
 
@@ -282,10 +226,7 @@ app.post("/update_performance", async (req, res) => {
       let newStyle = Object.keys(newScores).reduce((a, b) =>
         newScores[a] > newScores[b] ? a : b
       );
-      await db.execute("UPDATE users SET learning_style = ? WHERE id = ?", [
-        newStyle,
-        userId,
-      ]);
+      await db.execute("UPDATE users SET learning_style = ? WHERE id = ?", [newStyle, userId]);
       return res.json({ success: true, new_learning_style: newStyle });
     }
     res.json({ success: true, new_learning_style: old_style || "reading" });
@@ -299,12 +240,9 @@ app.post("/update_performance", async (req, res) => {
 app.post("/generate-quiz", async (req, res) => {
   const { topic, numQuestions, learningStyle, userId } = req.body;
   if (!topic || !numQuestions) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Topik dan jumlah soal diperlukan" });
+    return res.status(400).json({ success: false, message: "Topik dan jumlah soal diperlukan" });
   }
 
-  // Cek API Key OpenRouter
   if (!process.env.OPENROUTER_API_KEY) {
     return res.status(500).json({
       success: false,
@@ -316,8 +254,7 @@ app.post("/generate-quiz", async (req, res) => {
 
   let styleInstruction = "";
   if (learningStyle === "visual")
-    styleInstruction =
-      "Gunakan deskripsi visual, diagram, atau skenario yang mudah dibayangkan.";
+    styleInstruction = "Gunakan deskripsi visual, diagram, atau skenario yang mudah dibayangkan.";
   else if (learningStyle === "auditory")
     styleInstruction = "Gunakan skenario percakapan atau narasi.";
   else if (learningStyle === "reading")
@@ -337,29 +274,24 @@ app.post("/generate-quiz", async (req, res) => {
     Hanya kirim JSON, tanpa teks tambahan. Batasi total jawaban maksimal 500 kata dalam bahasa Indonesia.`;
 
   try {
-    const response = await fetch(
-      "https://openrouter.ai/api/v1/chat/completions",
-      {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-          "HTTP-Referer": "http://localhost:8080",
-          "X-Title": "elearning_ai_final",
-        },
-        body: JSON.stringify({
-          model: model,
-          messages: [{ role: "user", content: prompt }],
-        }),
-      }
-    );
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "http://localhost:8080",
+        "X-Title": "elearning_ai_final",
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [{ role: "user", content: prompt }],
+      }),
+    });
 
     const data = await response.json();
     if (data.error) {
       console.error("OpenRouter error:", data.error);
-      return res
-        .status(500)
-        .json({ success: false, message: data.error.message });
+      return res.status(500).json({ success: false, message: data.error.message });
     }
 
     let content = data.choices[0].message.content;
@@ -369,7 +301,6 @@ app.post("/generate-quiz", async (req, res) => {
       throw new Error("Format JSON tidak sesuai");
     }
 
-    // Simpan ke database hanya jika db tersedia dan userId ada
     if (db && userId) {
       try {
         await db.execute(
