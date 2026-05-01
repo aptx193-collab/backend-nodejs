@@ -26,13 +26,18 @@ let db;
   try {
     db = await mysql.createConnection({
       host: process.env.DB_HOST || "localhost",
+      port: process.env.DB_PORT || 3306,
       user: process.env.DB_USER || "root",
       password: process.env.DB_PASSWORD || "",
       database: process.env.DB_NAME || "elearning_ai_final",
+      ssl: {
+        // Aiven wajib SSL, tapi kita tidak perlu sertifikat CA spesifik
+        rejectUnauthorized: false
+      }
     });
-    console.log("MySQL terhubung");
+    console.log("✅ MySQL terhubung ke Aiven");
   } catch (err) {
-    console.error("Koneksi DB gagal:", err);
+    console.error("❌ Koneksi DB gagal:", err.message);
   }
 })();
 
