@@ -15,13 +15,84 @@ app.use(bodyParser.json());
 // Cek API Key OpenRouter
 if (!process.env.OPENROUTER_API_KEY) {
   console.warn(
-    "⚠️  OPENROUTER_API_KEY belum diatur di file .env. Generate quiz tidak akan berfungsi.",
+    "⚠️  OPENROUTER_API_KEY belum diatur di file .env. Generate quiz tidak akan berfungsi."
   );
 } else {
   console.log("✅ OpenRouter API Key ditemukan.");
 }
 
 let db;
+
+// Fungsi untuk menjalankan migrasi (membuat tabel & contoh data)
+async function runMigrations(database) {
+  console.log("Menjalankan migrasi database...");
+  // Tabel users
+  await database.execute(`
+    CREATE TABLE IF NOT EXISTS users (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      username VARCHAR(50),
+      email VARCHAR(100),
+      password VARCHAR(255),
+      learning_style VARCHAR(20) DEFAULT 'reading',
+      visual_score FLOAT DEFAULT 0,
+      auditory_score FLOAT DEFAULT 0,
+      reading_score FLOAT DEFAULT 0,
+      kinesthetic_score FLOAT DEFAULT 0
+    )
+  `);
+  // Tabel classification_rules
+  await database.execute(`
+    CREATE TABLE IF NOT EXISTS classification_rules (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      visual_weight FLOAT DEFAULT 1,
+      auditory_weight FLOAT DEFAULT 1,
+      reading_weight FLOAT DEFAULT 1,
+      kinesthetic_weight FLOAT DEFAULT 1
+    )
+  `);
+  // Data awal classification_rules
+  const [existingRules] = await database.execute("SELECT COUNT(*) AS cnt FROM classification_rules");
+  if (existingRules[0].cnt === 0) {
+    await database.execute(
+      "INSERT INTO classification_rules (visual_weight, auditory_weight, reading_weight, kinesthetic_weight) VALUES (1, 1, 1, 1)"
+    );
+  }
+  // Tabel activities
+  await database.execute(`
+    CREATE TABLE IF NOT EXISTS activities (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      title VARCHAR(200) NOT NULL,
+      type ENUM('video','teks','praktik') NOT NULL,
+      content_url VARCHAR(500),
+      style_target ENUM('visual','auditory','reading','kinesthetic')
+    )
+  `);
+  // Data contoh activities (hanya jika kosong)
+  const [existingActs] = await database.execute("SELECT COUNT(*) AS cnt FROM activities");
+  if (existingActs[0].cnt === 0) {
+    await database.execute(`
+      INSERT INTO activities (title, type, content_url, style_target) VALUES
+      ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
+      ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
+      ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
+      ('Praktik Membuat Rangkaian Listrik', 'praktik', 'https://example.com/praktik-listrik', 'kinesthetic')
+    `);
+  }
+  // Tabel ai_generated_quizzes
+  await database.execute(`
+    CREATE TABLE IF NOT EXISTS ai_generated_quizzes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      user_id INT,
+      topic VARCHAR(200),
+      num_questions INT,
+      questions JSON,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  console.log("✅ Migrasi database selesai.");
+}
+
+// Inisialisasi koneksi + migrasi
 (async () => {
   try {
     db = await mysql.createConnection({
@@ -31,41 +102,50 @@ let db;
       password: process.env.DB_PASSWORD || "",
       database: process.env.DB_NAME || "elearning_ai_final",
       ssl: {
-        // Aiven wajib SSL, tapi kita tidak perlu sertifikat CA spesifik
-        rejectUnauthorized: false
-      }
+        rejectUnauthorized: false,
+      },
     });
     console.log("✅ MySQL terhubung ke Aiven");
+    await runMigrations(db);
   } catch (err) {
-    console.error("❌ Koneksi DB gagal:", err.message);
+    console.error("❌ Koneksi/migrasi DB gagal:", err.message);
+    // db tetap undefined, tapi server tetap berjalan
   }
 })();
 
-// ========== ENDPOINT ANALISIS GAYA BELAJAR (TETAP) ==========
+// Helper untuk memastikan db tersedia
+function requireDb(res) {
+  if (!db) {
+    res.status(503).json({ success: false, message: "Database belum siap, coba beberapa saat lagi." });
+    return false;
+  }
+  return true;
+}
+
+// ========== ENDPOINT ANALISIS GAYA BELAJAR ==========
 app.post("/analyze", async (req, res) => {
+  if (!requireDb(res)) return;
+
   const { answers, userId } = req.body;
   if (!answers || answers.length !== 8) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Jawaban tidak lengkap" });
+    return res.status(400).json({ success: false, message: "Jawaban tidak lengkap" });
   }
+
+  // Hitung skor mentah
   let scores = { visual: 0, auditory: 0, reading: 0, kinesthetic: 0 };
   for (let a of answers) scores[a]++;
 
-  let rules = [
-    {
-      visual_weight: 1,
-      auditory_weight: 1,
-      reading_weight: 1,
-      kinesthetic_weight: 1,
-    },
-  ];
+  // Ambil aturan bobot (jika ada)
+  let rules = [{ visual_weight: 1, auditory_weight: 1, reading_weight: 1, kinesthetic_weight: 1 }];
   try {
     const [rows] = await db.execute(
-      "SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1",
+      "SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1"
     );
     if (rows.length) rules = rows;
-  } catch (e) {}
+  } catch (e) {
+    console.warn("Gagal ambil classification_rules, pakai default.");
+  }
+
   const w = rules[0];
   let weighted = {
     visual: scores.visual * w.visual_weight,
@@ -73,22 +153,20 @@ app.post("/analyze", async (req, res) => {
     reading: scores.reading * w.reading_weight,
     kinesthetic: scores.kinesthetic * w.kinesthetic_weight,
   };
+
   let maxStyle = Object.keys(weighted).reduce((a, b) =>
-    weighted[a] > weighted[b] ? a : b,
+    weighted[a] > weighted[b] ? a : b
   );
 
+  // Ambil aktivitas berdasarkan style
   let activities = [];
   try {
-    if (db) {
-      const [rows] = await db.execute(
-        "SELECT * FROM activities WHERE style_target = ?",
-        [maxStyle],
-      );
-      activities = rows;
-      console.log(
-        `Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`,
-      );
-    }
+    const [rows] = await db.execute(
+      "SELECT * FROM activities WHERE style_target = ?",
+      [maxStyle]
+    );
+    activities = rows;
+    console.log(`Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`);
   } catch (err) {
     console.error("Gagal ambil aktivitas:", err);
   }
@@ -101,27 +179,37 @@ app.post("/analyze", async (req, res) => {
   });
 });
 
-// ========== UPDATE PERFORMANCE (TETAP) ==========
+// ========== UPDATE PERFORMANCE ==========
 app.post("/update_performance", async (req, res) => {
+  if (!requireDb(res)) return;
+
   const { userId, activity_id, score_performance, old_style } = req.body;
-  if (!userId || !activity_id) return res.status(400).json({ success: false });
+  if (!userId || !activity_id) {
+    return res.status(400).json({ success: false, message: "userId dan activity_id diperlukan" });
+  }
+
   try {
-    let styleTarget = "reading";
+    // Jika activity_id 999 (quiz), langsung pakai old_style
+    let styleTarget = old_style || "reading";
     if (activity_id !== 999) {
       const [act] = await db.execute(
         "SELECT style_target FROM activities WHERE id = ?",
-        [activity_id],
+        [activity_id]
       );
       if (act.length) styleTarget = act[0].style_target;
     }
+
+    // Pastikan kolom skor ada di tabel users
     const increment = (score_performance / 100) * 2;
     await db.execute(
       `UPDATE users SET ${styleTarget}_score = ${styleTarget}_score + ? WHERE id = ?`,
-      [increment, userId],
+      [increment, userId]
     );
+
+    // Ambil skor terbaru
     const [user] = await db.execute(
       "SELECT visual_score, auditory_score, reading_score, kinesthetic_score FROM users WHERE id = ?",
-      [userId],
+      [userId]
     );
     if (user.length) {
       const u = user[0];
@@ -132,7 +220,7 @@ app.post("/update_performance", async (req, res) => {
         kinesthetic: u.kinesthetic_score,
       };
       let newStyle = Object.keys(newScores).reduce((a, b) =>
-        newScores[a] > newScores[b] ? a : b,
+        newScores[a] > newScores[b] ? a : b
       );
       await db.execute("UPDATE users SET learning_style = ? WHERE id = ?", [
         newStyle,
@@ -140,30 +228,27 @@ app.post("/update_performance", async (req, res) => {
       ]);
       return res.json({ success: true, new_learning_style: newStyle });
     }
-    res.json({ success: true, new_learning_style: old_style });
+    res.json({ success: true, new_learning_style: old_style || "reading" });
   } catch (err) {
-    console.error(err);
+    console.error("Update performa error:", err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
 
-// ========== GENERATE QUIZ DENGAN OPENROUTER (GRATIS) ==========
+// ========== GENERATE QUIZ DENGAN OPENROUTER ==========
 app.post("/generate-quiz", async (req, res) => {
+  if (!requireDb(res)) return;
+
   const { topic, numQuestions, learningStyle, userId } = req.body;
   if (!topic || !numQuestions) {
-    return res
-      .status(400)
-      .json({ success: false, message: "Topik dan jumlah soal diperlukan" });
+    return res.status(400).json({ success: false, message: "Topik dan jumlah soal diperlukan" });
   }
 
-  // Model gratis stabil, bisa diganti kalau sibuk
- const model = 'tencent/hy3-preview:free';
-  // Alternatif: 'microsoft/phi-3-mini-128k-instruct:free', 'google/gemma-3n-4b-it:free'
+  const model = "tencent/hy3-preview:free"; // model gratis
 
   let styleInstruction = "";
   if (learningStyle === "visual")
-    styleInstruction =
-      "Gunakan deskripsi visual, diagram, atau skenario yang mudah dibayangkan.";
+    styleInstruction = "Gunakan deskripsi visual, diagram, atau skenario yang mudah dibayangkan.";
   else if (learningStyle === "auditory")
     styleInstruction = "Gunakan skenario percakapan atau narasi.";
   else if (learningStyle === "reading")
@@ -197,22 +282,17 @@ app.post("/generate-quiz", async (req, res) => {
           model: model,
           messages: [{ role: "user", content: prompt }],
         }),
-      },
+      }
     );
 
     const data = await response.json();
     if (data.error) {
       console.error("OpenRouter error:", data.error);
-      return res
-        .status(500)
-        .json({ success: false, message: data.error.message });
+      return res.status(500).json({ success: false, message: data.error.message });
     }
 
     let content = data.choices[0].message.content;
-    content = content
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
+    content = content.replace(/```json/g, "").replace(/```/g, "").trim();
     const quizData = JSON.parse(content);
     if (!Array.isArray(quizData) || quizData.length !== numQuestions) {
       throw new Error("Format JSON tidak sesuai");
@@ -221,7 +301,7 @@ app.post("/generate-quiz", async (req, res) => {
     if (db && userId) {
       await db.execute(
         "INSERT INTO ai_generated_quizzes (user_id, topic, num_questions, questions) VALUES (?, ?, ?, ?)",
-        [userId, topic, numQuestions, JSON.stringify(quizData)],
+        [userId, topic, numQuestions, JSON.stringify(quizData)]
       );
     }
 
@@ -233,5 +313,5 @@ app.post("/generate-quiz", async (req, res) => {
 });
 
 app.listen(PORT, () => {
-  console.log(`Server AI berjalan di http://localhost:${PORT}`);
+  console.log(`Server AI berjalan di port ${PORT}`);
 });
