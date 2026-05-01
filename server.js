@@ -124,8 +124,6 @@ function requireDb(res) {
 
 // ========== ENDPOINT ANALISIS GAYA BELAJAR ==========
 app.post("/analyze", async (req, res) => {
-  if (!requireDb(res)) return;
-
   const { answers, userId } = req.body;
   if (!answers || answers.length !== 8) {
     return res.status(400).json({ success: false, message: "Jawaban tidak lengkap" });
@@ -135,15 +133,17 @@ app.post("/analyze", async (req, res) => {
   let scores = { visual: 0, auditory: 0, reading: 0, kinesthetic: 0 };
   for (let a of answers) scores[a]++;
 
-  // Ambil aturan bobot (jika ada)
+  // Aturan bobot default
   let rules = [{ visual_weight: 1, auditory_weight: 1, reading_weight: 1, kinesthetic_weight: 1 }];
-  try {
-    const [rows] = await db.execute(
-      "SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1"
-    );
-    if (rows.length) rules = rows;
-  } catch (e) {
-    console.warn("Gagal ambil classification_rules, pakai default.");
+  
+  // Ambil dari database hanya jika db tersedia
+  if (db) {
+    try {
+      const [rows] = await db.execute("SELECT * FROM classification_rules ORDER BY id DESC LIMIT 1");
+      if (rows.length) rules = rows;
+    } catch (e) {
+      console.warn("Gagal ambil classification_rules, pakai default.");
+    }
   }
 
   const w = rules[0];
@@ -158,24 +158,23 @@ app.post("/analyze", async (req, res) => {
     weighted[a] > weighted[b] ? a : b
   );
 
-  // Ambil aktivitas berdasarkan style
+  // Ambil aktivitas hanya jika db tersedia
   let activities = [];
-  try {
-    const [rows] = await db.execute(
-      "SELECT * FROM activities WHERE style_target = ?",
-      [maxStyle]
-    );
-    activities = rows;
-    console.log(`Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`);
-  } catch (err) {
-    console.error("Gagal ambil aktivitas:", err);
+  if (db) {
+    try {
+      const [rows] = await db.execute("SELECT * FROM activities WHERE style_target = ?", [maxStyle]);
+      activities = rows;
+      console.log(`Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`);
+    } catch (err) {
+      console.error("Gagal ambil aktivitas:", err);
+    }
   }
 
   res.json({
     success: true,
     learning_style: maxStyle,
     scores: weighted,
-    activities: activities,
+    activities: activities.length ? activities : [], // fallback kosong
   });
 });
 
