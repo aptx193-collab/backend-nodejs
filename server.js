@@ -175,7 +175,7 @@ app.post("/analyze", async (req, res) => {
             ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
             ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
             ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
-            ('Praktik Membuat Rangkaian Listrik', 'praktik', 'https://example.com/praktik-listrik', 'kinesthetic')
+            ('Praktik coding', 'praktik', 'https://example.com/praktik-coding', 'kinesthetic')
           `);
           console.log("✅ Data aktivitas contoh ditambahkan.");
         } catch (insertErr) {
@@ -224,7 +224,7 @@ app.post("/analyze", async (req, res) => {
       },
       {
         id: 0,
-        title: "Praktik Membuat Rangkaian Listrik",
+        title: "Praktik coding",
         type: "praktik",
         content_url: "https://example.com/praktik-listrik",
         style_target: "kinesthetic",
