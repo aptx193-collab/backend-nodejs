@@ -67,17 +67,7 @@ async function runMigrations(database) {
       style_target ENUM('visual','auditory','reading','kinesthetic')
     )
   `);
-  // Data contoh activities (hanya jika kosong)
-  const [existingActs] = await database.execute("SELECT COUNT(*) AS cnt FROM activities");
-  if (existingActs[0].cnt === 0) {
-    await database.execute(`
-      INSERT INTO activities (title, type, content_url, style_target) VALUES
-      ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
-      ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
-      ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
-      ('Praktik Membuat Rangkaian Listrik', 'praktik', 'https://example.com/praktik-listrik', 'kinesthetic')
-    `);
-  }
+  // Data contoh activities akan diisi nanti oleh endpoint /analyze jika kosong
   // Tabel ai_generated_quizzes
   await database.execute(`
     CREATE TABLE IF NOT EXISTS ai_generated_quizzes (
@@ -113,7 +103,7 @@ async function runMigrations(database) {
   }
 })();
 
-// Helper untuk memastikan db tersedia
+// Helper untuk memastikan db tersedia (untuk endpoint yang wajib)
 function requireDb(res) {
   if (!db) {
     res.status(503).json({ success: false, message: "Database belum siap, coba beberapa saat lagi." });
@@ -158,10 +148,25 @@ app.post("/analyze", async (req, res) => {
     weighted[a] > weighted[b] ? a : b
   );
 
-  // Ambil aktivitas hanya jika db tersedia
+  // Ambil aktivitas + auto-fill data contoh jika kosong
   let activities = [];
   if (db) {
     try {
+      // Cek apakah tabel activities kosong
+      const [countResult] = await db.execute("SELECT COUNT(*) AS cnt FROM activities");
+      if (countResult[0].cnt === 0) {
+        // Masukkan data contoh
+        await db.execute(`
+          INSERT INTO activities (title, type, content_url, style_target) VALUES
+          ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
+          ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
+          ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
+          ('Praktik Membuat Rangkaian Listrik', 'praktik', 'https://example.com/praktik-listrik', 'kinesthetic')
+        `);
+        console.log("✅ Data aktivitas contoh ditambahkan karena tabel kosong.");
+      }
+
+      // Sekarang ambil aktivitas sesuai gaya belajar
       const [rows] = await db.execute("SELECT * FROM activities WHERE style_target = ?", [maxStyle]);
       activities = rows;
       console.log(`Aktivitas ditemukan untuk gaya ${maxStyle}: ${activities.length}`);
@@ -174,7 +179,7 @@ app.post("/analyze", async (req, res) => {
     success: true,
     learning_style: maxStyle,
     scores: weighted,
-    activities: activities.length ? activities : [], // fallback kosong
+    activities: activities,
   });
 });
 
@@ -188,7 +193,6 @@ app.post("/update_performance", async (req, res) => {
   }
 
   try {
-    // Jika activity_id 999 (quiz), langsung pakai old_style
     let styleTarget = old_style || "reading";
     if (activity_id !== 999) {
       const [act] = await db.execute(
@@ -198,14 +202,12 @@ app.post("/update_performance", async (req, res) => {
       if (act.length) styleTarget = act[0].style_target;
     }
 
-    // Pastikan kolom skor ada di tabel users
     const increment = (score_performance / 100) * 2;
     await db.execute(
       `UPDATE users SET ${styleTarget}_score = ${styleTarget}_score + ? WHERE id = ?`,
       [increment, userId]
     );
 
-    // Ambil skor terbaru
     const [user] = await db.execute(
       "SELECT visual_score, auditory_score, reading_score, kinesthetic_score FROM users WHERE id = ?",
       [userId]
@@ -243,7 +245,7 @@ app.post("/generate-quiz", async (req, res) => {
     return res.status(400).json({ success: false, message: "Topik dan jumlah soal diperlukan" });
   }
 
-  const model = "tencent/hy3-preview:free"; // model gratis
+  const model = "tencent/hy3-preview:free";
 
   let styleInstruction = "";
   if (learningStyle === "visual")
