@@ -145,9 +145,9 @@ app.post("/analyze", async (req, res) => {
         try {
           await db.execute(`
             INSERT INTO activities (title, type, content_url, style_target) VALUES
-            ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
+            ('Membaca Artikel AI', 'teks', ' https://dte.telkomuniversity.ac.id/en/pengantar-pemrograman-konsep-variabel-tipe-data-dan-struktur-kontrol', 'reading'),
             ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
-            ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
+            ('Podcast Diskusi Sains', 'video', 'https://youtu.be/Uc3mUIF1bP0?si=afie12N3jzeqBwMy', 'auditory'),
             ('Praktik coding', 'praktik', 'https://flexboxfroggy.com/', 'kinesthetic')
           `);
           console.log("✅ Data aktivitas contoh ditambahkan.");
@@ -167,9 +167,9 @@ app.post("/analyze", async (req, res) => {
   if (activities.length === 0) {
     console.warn("⚠️ Tidak ada aktivitas, menggunakan fallback.");
     activities = [
-      { id: 0, title: "Membaca Artikel AI", type: "teks", content_url: "https://example.com/artikel-ai.txt", style_target: "reading" },
+      { id: 0, title: "Membaca Artikel AI", type: "teks", content_url: "https://dte.telkomuniversity.ac.id/en/pengantar-pemrograman-konsep-variabel-tipe-data-dan-struktur-kontrol", style_target: "reading" },
       { id: 0, title: "Menonton Video Visualisasi Data", type: "video", content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ", style_target: "visual" },
-      { id: 0, title: "Podcast Diskusi Sains", type: "video", content_url: "https://example.com/podcast.mp3", style_target: "auditory" },
+      { id: 0, title: "Podcast Diskusi Sains", type: "video", content_url: "https://youtu.be/Uc3mUIF1bP0?si=afie12N3jzeqBwMy", style_target: "auditory" },
       { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://flexboxfroggy.com", style_target: "kinesthetic" },
     ].filter((a) => a.style_target === maxStyle);
   }
