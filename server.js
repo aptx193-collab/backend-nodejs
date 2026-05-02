@@ -148,7 +148,7 @@ app.post("/analyze", async (req, res) => {
             ('Membaca Artikel AI', 'teks', 'https://example.com/artikel-ai.txt', 'reading'),
             ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
             ('Podcast Diskusi Sains', 'video', 'https://example.com/podcast.mp3', 'auditory'),
-            ('Praktik coding', 'praktik', 'https://example.com/praktik-coding', 'kinesthetic')
+            ('Praktik coding', 'praktik', 'https://flexboxfroggy.com/', 'kinesthetic')
           `);
           console.log("✅ Data aktivitas contoh ditambahkan.");
         } catch (insertErr) {
@@ -170,7 +170,7 @@ app.post("/analyze", async (req, res) => {
       { id: 0, title: "Membaca Artikel AI", type: "teks", content_url: "https://example.com/artikel-ai.txt", style_target: "reading" },
       { id: 0, title: "Menonton Video Visualisasi Data", type: "video", content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ", style_target: "visual" },
       { id: 0, title: "Podcast Diskusi Sains", type: "video", content_url: "https://example.com/podcast.mp3", style_target: "auditory" },
-      { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://flexboxfroggy.com/#id", style_target: "kinesthetic" },
+      { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://flexboxfroggy.com", style_target: "kinesthetic" },
     ].filter((a) => a.style_target === maxStyle);
   }
 
