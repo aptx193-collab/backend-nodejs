@@ -170,7 +170,7 @@ app.post("/analyze", async (req, res) => {
       { id: 0, title: "Membaca Artikel AI", type: "teks", content_url: "https://example.com/artikel-ai.txt", style_target: "reading" },
       { id: 0, title: "Menonton Video Visualisasi Data", type: "video", content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ", style_target: "visual" },
       { id: 0, title: "Podcast Diskusi Sains", type: "video", content_url: "https://example.com/podcast.mp3", style_target: "auditory" },
-      { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://example.com/praktik-coding", style_target: "kinesthetic" },
+      { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://flexboxfroggy.com/#id", style_target: "kinesthetic" },
     ].filter((a) => a.style_target === maxStyle);
   }
 
