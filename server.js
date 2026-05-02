@@ -137,6 +137,7 @@ app.post("/analyze", async (req, res) => {
     weighted[a] > weighted[b] ? a : b
   );
 
+  // ============ AKTIVITAS DENGAN LINK BARU ============
   let activities = [];
   if (db) {
     try {
@@ -145,10 +146,10 @@ app.post("/analyze", async (req, res) => {
         try {
           await db.execute(`
             INSERT INTO activities (title, type, content_url, style_target) VALUES
-            ('Membaca Artikel AI', 'teks', ' https://dte.telkomuniversity.ac.id/en/pengantar-pemrograman-konsep-variabel-tipe-data-dan-struktur-kontrol', 'reading'),
-            ('Menonton Video Visualisasi Data', 'video', 'https://www.youtube.com/embed/dQw4w9WgXcQ', 'visual'),
-            ('Podcast Diskusi Sains', 'video', 'https://youtu.be/Uc3mUIF1bP0?si=afie12N3jzeqBwMy', 'auditory'),
-            ('Praktik coding', 'praktik', 'https://flexboxfroggy.com/', 'kinesthetic')
+            ('Artikel: Pengantar Pemrograman', 'teks', 'https://dte.telkomuniversity.ac.id/en/pengantar-pemrograman-konsep-variabel-tipe-data-dan-struktur-kontrol', 'reading'),
+            ('Video: Visualisasi Data untuk Pemula', 'video', 'https://www.youtube.com/embed/R_MbWn5wBis', 'visual'),
+            ('Podcast: Mengapa Sains Itu Seru?', 'video', 'https://www.youtube.com/embed/Uc3mUIF1bP0', 'auditory'),
+            ('Game: Flexbox Froggy', 'praktik', 'https://flexboxfroggy.com', 'kinesthetic')
           `);
           console.log("✅ Data aktivitas contoh ditambahkan.");
         } catch (insertErr) {
@@ -164,13 +165,38 @@ app.post("/analyze", async (req, res) => {
     }
   }
 
+  // Fallback aktivitas dengan link baru
   if (activities.length === 0) {
     console.warn("⚠️ Tidak ada aktivitas, menggunakan fallback.");
     activities = [
-      { id: 0, title: "Membaca Artikel AI", type: "teks", content_url: "https://dte.telkomuniversity.ac.id/en/pengantar-pemrograman-konsep-variabel-tipe-data-dan-struktur-kontrol", style_target: "reading" },
-      { id: 0, title: "Menonton Video Visualisasi Data", type: "video", content_url: "https://www.youtube.com/embed/dQw4w9WgXcQ", style_target: "visual" },
-      { id: 0, title: "Podcast Diskusi Sains", type: "video", content_url: "https://youtu.be/Uc3mUIF1bP0?si=afie12N3jzeqBwMy", style_target: "auditory" },
-      { id: 0, title: "Praktik coding", type: "praktik", content_url: "https://flexboxfroggy.com", style_target: "kinesthetic" },
+      {
+        id: 0,
+        title: "Artikel: Pengantar Pemrograman",
+        type: "teks",
+        content_url: "https://dte.telkomuniversity.ac.id/en/pengantar-pemrograman-konsep-variabel-tipe-data-dan-struktur-kontrol",
+        style_target: "reading",
+      },
+      {
+        id: 0,
+        title: "Video: Visualisasi Data untuk Pemula",
+        type: "video",
+        content_url: "https://www.youtube.com/embed/R_MbWn5wBis",
+        style_target: "visual",
+      },
+      {
+        id: 0,
+        title: "Podcast: Mengapa Sains Itu Seru?",
+        type: "video",
+        content_url: "https://www.youtube.com/embed/Uc3mUIF1bP0",
+        style_target: "auditory",
+      },
+      {
+        id: 0,
+        title: "Game: Flexbox Froggy",
+        type: "praktik",
+        content_url: "https://flexboxfroggy.com",
+        style_target: "kinesthetic",
+      },
     ].filter((a) => a.style_target === maxStyle);
   }
 
@@ -189,7 +215,6 @@ app.post("/update_performance", async (req, res) => {
     return res.status(400).json({ success: false, message: "userId dan activity_id diperlukan" });
   }
 
-  // Jika database belum tersedia, balas dengan success sementara
   if (!db) {
     return res.json({
       success: true,
